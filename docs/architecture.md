@@ -227,7 +227,9 @@ The bus never knows about threading. The complexity is entirely inside the compo
 └────────┴───────────────┴────────────┴──────────────────┴──────────┘
 ```
 
-Details on the transport and workflow layers are in their respective documents:
+Details on each layer are in their respective documents:
+- [Component model](component-model.md)
+- [Player — declarative scene runner](player.md)
 - [Transport adapters](transport-adapters.md)
 - [Workflow integration](workflow-integration.md)
 
@@ -241,6 +243,7 @@ noid/
     bus.py               # Bus class  ✓ implemented
     base.py              # OidBase    ✓ implemented
     component.py         # OidComponent + Noid registry  ✓ implemented
+    player.py            # NoidPlayer (declarative scene runner)  ✓ implemented
     bridge.py            # BusBridge (transport-agnostic)  — planned
     workflow_bridge.py   # WorkflowBridge (engine-agnostic)  — planned
   transport/
@@ -257,6 +260,7 @@ tests/
   core/
     test_bus.py          # 25 tests  ✓
     test_base.py         # 32 tests  ✓
+    test_player.py       # 17 tests  ✓
 
 playground/
   learning/
@@ -267,6 +271,12 @@ playground/
       01-basic/basic.py                           ✓
       02-publish-subscribe/pub_sub.py             ✓
       03-threaded/threaded.py                     ✓
+    03-player/
+      components.py                                    # shared example components
+      01-basic/scene.json + run.py                ✓
+      02-publish-subscribe/scene.json + run.py    ✓
+      03-wildcards/scene.json + run.py            ✓
+      04-connect/scene.json + run.py              ✓
 ```
 
 ---
@@ -289,3 +299,7 @@ playground/
 | 12 | `start_in_thread()` blocks until `_initialize()` completes | Callers can safely publish immediately after `start_in_thread()` returns; no race window |
 | 13 | `Noid.register(spec)` for JSON-driven components | Pure-spec components (no Python class) are a first-class path; useful for configuration-driven deployments and for mirroring the declarative HTML element approach in JS |
 | 14 | Property descriptors added to class at registration time | Backed by `_prop_<name>` instance attributes; defaults applied per-instance in `_initialize()` so multiple instances are independent |
+| 15 | `NoidPlayer` as the Python equivalent of an HTML page | The JSON scene file plays the role of an HTML document; `NoidPlayer` plays the role of the browser; the same attribute names (`type`, `id`, `properties`, `publish`, `subscribe`, `connect`) are used in both |
+| 16 | `start_in_thread()` delegates to `start()` / `stop()` internally | The threaded `_boot` coroutine calls `start()` (not the internal `_initialize()`), so component subclasses that override `start()` get their initialization called in dedicated-thread mode too |
+| 17 | Auto-relay in `handle_notice` returns `_notify` coroutine | When no handler is registered for a notice but a publish mapping exists, `handle_notice` returns `self._notify(notice, message)` — a coroutine that the bus awaits, giving the same delivery guarantee as an explicit async handler. Enables pure-JSON relay components with zero Python code |
+| 18 | `player/done` as the stop signal | Any component can end a player session by publishing to `player/done` — mirrors browser tab-close equivalent; keeps stop logic in the scene, not hard-coded in application code |

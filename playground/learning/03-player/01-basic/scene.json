@@ -1,0 +1,19 @@
+{
+  "title": "Basic Player",
+  "description": "One timer, one logger — all wiring declared in JSON (no Python glue code).",
+
+  "imports": ["../components.py"],
+
+  "components": [
+    {
+      "type":       "ex:timer",
+      "properties": {"interval": 0.3, "count": 5, "label": "tick"},
+      "publish":    "tick~timer/tick;done~player/done"
+    },
+    {
+      "type":       "ex:logger",
+      "properties": {"prefix": ">>"},
+      "subscribe":  "timer/tick~log"
+    }
+  ]
+}

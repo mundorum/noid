@@ -1,0 +1,34 @@
+{
+  "title": "Wildcards",
+  "description": "Three timers on different topics; loggers using # and + wildcard patterns.",
+
+  "imports": ["../components.py"],
+
+  "components": [
+    {
+      "type":       "ex:timer",
+      "properties": {"interval": 0.2, "count": 5, "label": "science"},
+      "publish":    "tick~news/science;done~player/done"
+    },
+    {
+      "type":       "ex:timer",
+      "properties": {"interval": 0.3, "count": 3, "label": "tech"},
+      "publish":    "tick~news/tech"
+    },
+    {
+      "type":       "ex:timer",
+      "properties": {"interval": 0.4, "count": 2, "label": "sports"},
+      "publish":    "tick~news/sports"
+    },
+    {
+      "type":       "ex:logger",
+      "properties": {"prefix": "ALL  (news/#)        "},
+      "subscribe":  "news/#~log"
+    },
+    {
+      "type":       "ex:logger",
+      "properties": {"prefix": "SCI  (+/science)     "},
+      "subscribe":  "+/science~log"
+    }
+  ]
+}

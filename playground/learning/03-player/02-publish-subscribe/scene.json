@@ -1,0 +1,31 @@
+{
+  "title": "Publish/Subscribe",
+  "description": "Two timers publishing on different topics; two loggers with different subscriptions.",
+
+  "imports": ["../components.py"],
+
+  "components": [
+    {
+      "type":       "ex:timer",
+      "id":         "disease-timer",
+      "properties": {"interval": 0.25, "count": 6, "label": "disease"},
+      "publish":    "tick~news/disease;done~player/done"
+    },
+    {
+      "type":       "ex:timer",
+      "id":         "drug-timer",
+      "properties": {"interval": 0.35, "count": 4, "label": "drug"},
+      "publish":    "tick~news/drug"
+    },
+    {
+      "type":       "ex:logger",
+      "properties": {"prefix": "ALL NEWS  "},
+      "subscribe":  "news/#~log"
+    },
+    {
+      "type":       "ex:logger",
+      "properties": {"prefix": "DRUG ONLY "},
+      "subscribe":  "news/drug~log"
+    }
+  ]
+}

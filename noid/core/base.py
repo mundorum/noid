@@ -128,10 +128,10 @@ class OidBase:
 
             async def _boot():
                 self._stop_event = asyncio.Event()
-                await self._initialize()   # wire up before signalling ready
+                await self.start()   # wire up + any subclass overrides
                 _ready.set()
                 await self._stop_event.wait()
-                self._finalize()
+                await self.stop()    # full cleanup + any subclass overrides
 
             loop.run_until_complete(_boot())
             loop.close()
@@ -372,11 +372,20 @@ class OidBase:
         Returns the handler's return value so that coroutines produced by async
         handlers bubble up through _convert_notice to the bus, which then awaits
         them in the correct event loop.
+
+        Auto-relay (Python extension): if no handler is registered for this notice
+        but a publish mapping exists, the message is forwarded automatically.  This
+        enables pure-JSON relay components defined via Noid.register() or the
+        player's "register" section without requiring a custom Python class.
         """
         notice_main = notice.split("/")[0] if notice and "/" in notice else notice
         handler = self._receive_handler.get(notice_main)
         if handler is not None:
             return handler(notice, message)
+        # Auto-relay (Python extension): return the _notify coroutine so the bus
+        # awaits it — same propagation path as async handlers.
+        if notice_main in self._map_notice_topic:
+            return self._notify(notice_main, message)
         return None
 
     async def handle_invoke(self, c_interface: str, notice: str, message: Any) -> Any:

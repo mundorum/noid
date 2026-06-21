@@ -1,0 +1,19 @@
+{
+  "title": "Connect",
+  "description": "ex:sender connects to ex:store via the itf:transfer interface — mirrors JS connect example.",
+
+  "imports": ["../components.py"],
+
+  "components": [
+    {
+      "id":   "store1",
+      "type": "ex:store"
+    },
+    {
+      "type":       "ex:sender",
+      "properties": {"value": "Hello from the scene file!"},
+      "connect":    "itf:transfer#store1",
+      "publish":    "done~player/done"
+    }
+  ]
+}
