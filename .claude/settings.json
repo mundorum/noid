@@ -1,5 +1,6 @@
 {
   "additionalDirectories": [
-    "~/git/mundorum/oid"
+    "~/git/mundorum/oid",
+    "~/git/mundorum/oid-page"
   ]
 }
