@@ -539,3 +539,148 @@ def test_two_threaded_components_exchange_messages() -> None:
     consumer.stop_thread()
     producer.join_thread(timeout=2)
     consumer.join_thread(timeout=2)
+
+
+# ---------------------------------------------------------------------------
+# Readiness queue: set_ready / _pending_messages
+# ---------------------------------------------------------------------------
+
+async def test_not_ready_queues_messages() -> None:
+    """Messages received while not ready must be buffered, not dispatched."""
+    bus = fresh_bus()
+    log: list = []
+
+    @Noid.component({"id": "ex:queue-buffer", "subscribe": "work~do", "receive": ["do"]})
+    class BufferOid(OidComponent):
+        def handle_do(self, notice, message):
+            log.append(message["n"])
+
+    comp = BufferOid(bus=bus)
+    await comp.start()
+    comp.set_ready(False)
+
+    await bus.publish("work", {"n": 1})
+    await bus.publish("work", {"n": 2})
+
+    assert log == [], "handler must not fire while not ready"
+    assert len(comp._pending_messages) == 2
+
+
+async def test_set_ready_drains_queue_in_order() -> None:
+    """set_ready(True) must replay buffered messages in FIFO order."""
+    bus = fresh_bus()
+    log: list = []
+
+    @Noid.component({"id": "ex:queue-drain", "subscribe": "job~run", "receive": ["run"]})
+    class DrainOid(OidComponent):
+        def handle_run(self, notice, message):
+            log.append(message["n"])
+
+    comp = DrainOid(bus=bus)
+    await comp.start()
+    comp.set_ready(False)
+
+    await bus.publish("job", {"n": 10})
+    await bus.publish("job", {"n": 20})
+    await bus.publish("job", {"n": 30})
+
+    comp.set_ready(True)
+    # yield to the event loop so the drain task can execute
+    await asyncio.sleep(0)
+
+    assert log == [10, 20, 30]
+    assert comp._pending_messages == []
+
+
+async def test_set_ready_without_pending_is_noop() -> None:
+    """set_ready(True) on an empty queue must not raise or schedule extra tasks."""
+    bus = fresh_bus()
+
+    @Noid.component({"id": "ex:queue-noop"})
+    class NoopOid(OidComponent):
+        pass
+
+    comp = NoopOid(bus=bus)
+    await comp.start()
+    comp.set_ready(False)
+    comp.set_ready(True)  # must not raise
+
+
+async def test_messages_after_set_ready_dispatched_directly() -> None:
+    """After set_ready(True), new messages are dispatched without queuing."""
+    bus = fresh_bus()
+    log: list = []
+
+    @Noid.component({"id": "ex:queue-direct", "subscribe": "ping~got", "receive": ["got"]})
+    class DirectOid(OidComponent):
+        def handle_got(self, notice, message):
+            log.append(message.get("v"))
+
+    comp = DirectOid(bus=bus)
+    await comp.start()
+    comp.set_ready(False)
+    comp.set_ready(True)
+    await asyncio.sleep(0)
+
+    await bus.publish("ping", {"v": 99})
+    assert log == [99]
+    assert comp._pending_messages == []
+
+
+async def test_async_handler_with_readiness_queue() -> None:
+    """Async handlers in the drained queue must be awaited properly."""
+    bus = fresh_bus()
+    log: list = []
+
+    @Noid.component({"id": "ex:queue-async", "subscribe": "work~do", "receive": ["do"]})
+    class AsyncOid(OidComponent):
+        async def handle_do(self, notice, message):
+            await asyncio.sleep(0)
+            log.append(message["n"])
+
+    comp = AsyncOid(bus=bus)
+    await comp.start()
+    comp.set_ready(False)
+
+    await bus.publish("work", {"n": 7})
+    await bus.publish("work", {"n": 8})
+
+    comp.set_ready(True)
+    await asyncio.sleep(0.05)  # allow async drain tasks to complete
+
+    assert log == [7, 8]
+
+
+async def test_readiness_prevents_concurrent_async_handler() -> None:
+    """
+    Pattern: set_ready(False) inside an async handler gates subsequent messages
+    until processing completes — prevents concurrent invocations.
+    """
+    bus = fresh_bus()
+    log: list = []
+    active = 0
+
+    @Noid.component({"id": "ex:queue-mutex", "subscribe": "task~run", "receive": ["run"]})
+    class MutexOid(OidComponent):
+        async def handle_run(self, notice, message):
+            nonlocal active
+            self.set_ready(False)
+            active += 1
+            assert active == 1, "concurrent execution detected"
+            await asyncio.sleep(0.01)
+            log.append(message["n"])
+            active -= 1
+            self.set_ready(True)
+            await asyncio.sleep(0)  # let drain run before returning
+
+    comp = MutexOid(bus=bus)
+    await comp.start()
+
+    await asyncio.gather(
+        bus.publish("task", {"n": 1}),
+        bus.publish("task", {"n": 2}),
+        bus.publish("task", {"n": 3}),
+    )
+    await asyncio.sleep(0.1)
+
+    assert sorted(log) == [1, 2, 3]

@@ -80,6 +80,10 @@ class OidBase:
         # threaded mode where actual_bus_handler is a wrapped dispatcher.
         self._subscriptions: List[Tuple[str, Callable, Callable]] = []
 
+        # Readiness queue — messages received while not ready are buffered here
+        self._ready: bool = True
+        self._pending_messages: List[Tuple[str, Any]] = []
+
         # Threading state
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
@@ -366,12 +370,25 @@ class OidBase:
     def handle_notice(self, notice: str, message: Any) -> Any:
         """
         Dispatch an incoming notice to the matching receive handler.
-        Only the first path segment is used as the dispatch key
-        (e.g. 'update/partial' dispatches to handle_update).
+
+        If the component is not ready (set_ready(False) was called), the notice
+        is queued and will be replayed in order once set_ready(True) is called.
 
         Returns the handler's return value so that coroutines produced by async
         handlers bubble up through _convert_notice to the bus, which then awaits
         them in the correct event loop.
+        """
+        if not self._ready:
+            self._pending_messages.append((notice, message))
+            return None
+        return self._dispatch_notice(notice, message)
+
+    def _dispatch_notice(self, notice: str, message: Any) -> Any:
+        """
+        Core dispatch: route notice to its handler or auto-relay via publish map.
+
+        Only the first path segment is used as the dispatch key
+        (e.g. 'update/partial' dispatches to handle_update).
 
         Auto-relay (Python extension): if no handler is registered for this notice
         but a publish mapping exists, the message is forwarded automatically.  This
@@ -382,11 +399,56 @@ class OidBase:
         handler = self._receive_handler.get(notice_main)
         if handler is not None:
             return handler(notice, message)
-        # Auto-relay (Python extension): return the _notify coroutine so the bus
-        # awaits it — same propagation path as async handlers.
+        # Auto-relay: return the _notify coroutine so the bus awaits it.
         if notice_main in self._map_notice_topic:
             return self._notify(notice_main, message)
         return None
+
+    def set_ready(self, ready: bool) -> None:
+        """
+        Mark this component as ready or not ready to process incoming notices.
+
+        While not ready, incoming notices are buffered in arrival order.
+        Calling set_ready(True) schedules a drain: each buffered notice is
+        dispatched in FIFO order through the normal handle_notice path.
+
+        Typical use — prevent concurrent processing of an async handler::
+
+            async def handle_input(self, notice, message):
+                self.set_ready(False)
+                try:
+                    result = await some_slow_call(message)
+                    await self._notify("output", result)
+                finally:
+                    self.set_ready(True)
+        """
+        was_ready = self._ready
+        self._ready = ready
+        if ready and not was_ready and self._pending_messages:
+            self._schedule_drain()
+
+    def _schedule_drain(self) -> None:
+        """Schedule _drain_pending() in the component's event loop."""
+        if self._loop is None:
+            return
+        try:
+            running = asyncio.get_running_loop()
+            if running is self._loop:
+                asyncio.create_task(self._drain_pending())
+                return
+        except RuntimeError:
+            pass
+        self._loop.call_soon_threadsafe(
+            lambda: self._loop.create_task(self._drain_pending())
+        )
+
+    async def _drain_pending(self) -> None:
+        """Replay buffered notices in FIFO order, stopping if set_ready(False) is called."""
+        while self._pending_messages and self._ready:
+            notice, message = self._pending_messages.pop(0)
+            result = self._dispatch_notice(notice, message)
+            if asyncio.iscoroutine(result):
+                await result
 
     async def handle_invoke(self, c_interface: str, notice: str, message: Any) -> Any:
         """Dispatch an invoke call to the matching provide handler."""
