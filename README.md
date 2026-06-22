@@ -26,17 +26,13 @@ noid and oid share design principles and should always be developed together. Th
 
 ## Installation
 
-> Package not yet published. Structure and installation instructions will be added as the implementation progresses.
-
-Optional extras select which adapters are installed:
-
 ```
-pip install noid              # core only — no web or workflow deps
-pip install noid[fastapi]     # + FastAPI transport adapter
-pip install noid[django]      # + Django Channels transport adapter
-pip install noid[dagster]     # + Dagster workflow adapter (dataflow workloads)
-pip install noid[temporal]    # + Temporal workflow adapter (agent workloads)
-pip install noid[langgraph]   # + LangGraph workflow adapter (agent workloads)
+pip install n-o-id              # core only — no web or workflow deps
+pip install n-o-id[fastapi]     # + FastAPI transport adapter
+pip install n-o-id[django]      # + Django Channels transport adapter
+pip install n-o-id[dagster]     # + Dagster workflow adapter (dataflow workloads)
+pip install n-o-id[temporal]    # + Temporal workflow adapter (agent workloads)
+pip install n-o-id[langgraph]   # + LangGraph workflow adapter (agent workloads)
 ```
 
 ## Documentation

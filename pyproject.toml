@@ -3,11 +3,23 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "noid"
+name = "mundorum-noid"
 version = "0.1.0"
-description = "Python node-OID component framework"
+description = "Python n-o-id component framework"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "LGPL-2.1"
+authors = [
+    {name = "André Santanchè"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Homepage = "https://github.com/mundorum/noid"
+Repository = "https://github.com/mundorum/noid"
 
 [project.optional-dependencies]
 dev = [
