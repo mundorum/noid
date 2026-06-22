@@ -15,6 +15,9 @@ dev = [
     "pytest-asyncio>=0.23",
 ]
 
+[project.scripts]
+noid-play = "noid.core.player:_cli"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["noid*"]

@@ -194,3 +194,40 @@ class NoidPlayer:
         player = cls(bus=bus)
         player.load(scene)
         asyncio.run(player.run(timeout=timeout))
+
+
+def _cli(argv=None) -> None:
+    """
+    Command-line entry point.
+
+    Usage:
+        noid-play scene.json
+        noid-play scene.json --timeout 30
+        python -m noid scene.json
+        python -m noid.core.player scene.json
+    """
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        prog="noid-play",
+        description="Run a noid JSON scene file.",
+    )
+    parser.add_argument(
+        "scene",
+        help="Path to the JSON scene file to load and run.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Stop after this many seconds even if player/done is not published.",
+    )
+    args = parser.parse_args(argv)
+
+    NoidPlayer.play(args.scene, timeout=args.timeout)
+
+
+if __name__ == "__main__":
+    _cli()
