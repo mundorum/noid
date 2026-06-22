@@ -24,6 +24,13 @@ Key invariants to never violate:
 - The Bus API must mirror the JS oid `Bus` class exactly.
 - If a design decision changes, update `docs/` in the same commit.
 
+## Sibling projects
+
+A sibling **noid-collections** project implements reusable noid components built on this framework.
+
+- [`docs/component-authoring-guide.md`](docs/component-authoring-guide.md) — exhaustive guide for implementing components correctly; intended for AI-assisted development in collections projects.
+- [`docs/sibling-CLAUDE-template.md`](docs/sibling-CLAUDE-template.md) — ready-to-use CLAUDE.md template for any sibling collections project. Copy it to that project's root as `CLAUDE.md` before starting work there.
+
 ## Platform context
 
 The user has an existing **Django** platform. noid must integrate with it via the Django/Channels transport adapter without requiring the full Django stack for standalone use.
