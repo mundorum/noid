@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mundorum-noid"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python n-o-id component framework"
 readme = "README.md"
 requires-python = ">=3.10"
