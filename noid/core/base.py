@@ -294,9 +294,12 @@ class OidBase:
             actual = self._make_thread_dispatcher(handler)
         else:
             actual = handler
-        # Tag with component_id so Bus.publish can name this receiver in monitor output.
-        if actual is not None and self._component_id:
-            actual = _OwnedHandler(actual, self._component_id)
+        # Tag with an owner label so Bus.publish can name this receiver in monitor output.
+        # Use the instance id when set, otherwise fall back to the spec type id so that
+        # anonymous component instances (no "id" in the scene) still appear by type.
+        owner = self._component_id or (getattr(type(self), "_spec", None) or {}).get("id")
+        if actual is not None and owner:
+            actual = _OwnedHandler(actual, owner)
         # Track for later unsubscribe
         if handler is not None:
             self._subscriptions.append((topic_or_dict, handler, actual))
@@ -311,7 +314,8 @@ class OidBase:
                 return
 
     async def _publish(self, topic: str, message: Any) -> None:
-        token = _current_publisher.set(self._component_id)
+        owner = self._component_id or (getattr(type(self), "_spec", None) or {}).get("id")
+        token = _current_publisher.set(owner)
         try:
             await self._bus.publish(topic, message)
         finally:
