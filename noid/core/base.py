@@ -9,7 +9,24 @@ import re
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from noid.core.bus import Bus
+from noid.core.bus import Bus, _current_publisher
+
+
+class _OwnedHandler:
+    """
+    Thin callable wrapper that carries the owning component's id so that
+    Bus.publish can report named receivers to monitor handlers without
+    storing any component references inside the Bus itself.
+    """
+
+    __slots__ = ("_fn", "noid_owner")
+
+    def __init__(self, fn: Callable, owner: str) -> None:
+        self._fn = fn
+        self.noid_owner = owner
+
+    def __call__(self, topic: str, message: Any) -> Any:
+        return self._fn(topic, message)
 
 
 class OidBase:
@@ -277,6 +294,9 @@ class OidBase:
             actual = self._make_thread_dispatcher(handler)
         else:
             actual = handler
+        # Tag with component_id so Bus.publish can name this receiver in monitor output.
+        if actual is not None and self._component_id:
+            actual = _OwnedHandler(actual, self._component_id)
         # Track for later unsubscribe
         if handler is not None:
             self._subscriptions.append((topic_or_dict, handler, actual))
@@ -291,7 +311,11 @@ class OidBase:
                 return
 
     async def _publish(self, topic: str, message: Any) -> None:
-        await self._bus.publish(topic, message)
+        token = _current_publisher.set(self._component_id)
+        try:
+            await self._bus.publish(topic, message)
+        finally:
+            _current_publisher.reset(token)
 
     def _provide(self, c_interface: str, component_id: str, provider: Any) -> bool:
         return self._bus.provide(c_interface, component_id, provider)

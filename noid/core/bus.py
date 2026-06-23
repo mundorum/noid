@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import re
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -6,6 +7,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 Handler = Callable[..., Any]
 _TopicMap = Dict[str, List[Handler]]
 _RegexEntry = Tuple[re.Pattern, Handler, str]
+
+# Tracks which component_id is currently publishing (set by OidBase._publish).
+# Monitor handlers can read this to show the originator of each message.
+_current_publisher: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "_current_publisher", default=None
+)
 
 
 class Bus:
@@ -37,6 +44,7 @@ class Bus:
         self._listeners_rgx: List[_RegexEntry] = []
         self._providers: Dict[str, Any] = {}
         self._pending_cnx: Dict[str, List[Any]] = {}
+        self._monitors: List[Handler] = []
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -119,25 +127,74 @@ class Bus:
             self._listeners_rgx = listeners_rgx
             self._listeners = listeners
 
+    # ------------------------------------------------------------------
+    # Traffic monitoring  (invisible to normal pub/sub dispatch)
+    # ------------------------------------------------------------------
+
+    def subscribe_monitor(self, handler: Handler) -> None:
+        """
+        Register a monitor handler that is called for every published message
+        before normal subscriber dispatch.
+
+        Monitor handlers receive four positional arguments::
+
+            handler(topic, message, source, receivers)
+              topic     – published topic string
+              message   – the message value
+              source    – component_id of the publisher, or None if unknown
+              receivers – list of component_ids of named subscribers that
+                          matched; anonymous subscribers are not listed
+
+        Monitor handlers are kept in a separate list and are never themselves
+        reported as receivers, so monitoring activity does not pollute the log.
+        """
+        with self._lock:
+            self._monitors = list(self._monitors) + [handler]
+
+    def unsubscribe_monitor(self, handler: Handler) -> None:
+        """Remove a previously registered monitor handler."""
+        with self._lock:
+            self._monitors = [h for h in self._monitors if h is not handler]
+
     async def publish(self, topic: str, message: Any) -> None:
         """
         Publish a message to all subscribers whose topic pattern matches.
         Handlers may be plain callables or async coroutine functions.
+
+        If monitor handlers are registered (via subscribe_monitor), they are
+        called first with (topic, message, source, receivers) where source is
+        the publishing component_id (set via the _current_publisher context
+        variable by OidBase._publish) and receivers is the list of named
+        subscriber component_ids that matched.
         """
         with self._lock:
             exact = list(self._listeners.get(topic, []))
             rgx = list(self._listeners_rgx)
+            monitors = list(self._monitors)
+
+        rgx_matched = [h for pat, h, _ in rgx if pat.fullmatch(topic)]
+
+        if monitors:
+            source = _current_publisher.get()
+            receivers = [
+                owner
+                for h in (exact + rgx_matched)
+                if (owner := getattr(h, "noid_owner", None)) is not None
+            ]
+            for m in monitors:
+                result = m(topic, message, source, receivers)
+                if asyncio.iscoroutine(result):
+                    await result
 
         for h in exact:
             result = h(topic, message)
             if asyncio.iscoroutine(result):
                 await result
 
-        for pattern, h, _ in rgx:
-            if pattern.fullmatch(topic):
-                result = h(topic, message)
-                if asyncio.iscoroutine(result):
-                    await result
+        for h in rgx_matched:
+            result = h(topic, message)
+            if asyncio.iscoroutine(result):
+                await result
 
     # ------------------------------------------------------------------
     # Message analysis helpers

@@ -224,9 +224,28 @@ def _cli(argv=None) -> None:
         metavar="SECONDS",
         help="Stop after this many seconds even if player/done is not published.",
     )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help=(
+            "Print bus traffic to the console: each published message shows "
+            "its topic, the publishing component, the receiving components, "
+            "and the message payload."
+        ),
+    )
     args = parser.parse_args(argv)
 
-    NoidPlayer.play(args.scene, timeout=args.timeout)
+    bus = Bus()
+    monitor = None
+    if args.verbose:
+        from noid.management.bus_monitor import BusMonitor
+        monitor = BusMonitor(bus)
+        monitor.start()
+    try:
+        NoidPlayer.play(args.scene, timeout=args.timeout, bus=bus)
+    finally:
+        if monitor:
+            monitor.stop()
 
 
 if __name__ == "__main__":
