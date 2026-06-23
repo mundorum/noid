@@ -131,9 +131,37 @@ This is a Python extension with no JS equivalent (JS always needs an explicit ha
 
 ---
 
-## The `player/done` stop signal
+## The `player/` reserved topic protocol
 
-`NoidPlayer.run()` blocks until the `player/done` topic is published on the bus. Any component can end the session by publishing to it:
+`NoidPlayer` uses a pair of reserved topics to signal scene lifecycle events.
+Both are published automatically — components subscribe to them via the normal
+`"subscribe"` spec; no special Python code is needed.
+
+### `player/start` — scene ready
+
+After all components have been started and their subscriptions are live,
+`NoidPlayer.run()` publishes `player/start {}`.
+
+Source components that need a "go" signal subscribe to it in the scene:
+
+```json
+{
+  "type":      "data:text-source",
+  "properties": {"text": "Hello!"},
+  "subscribe": "player/start~trigger",
+  "publish":   "text~pipeline/text"
+}
+```
+
+This replaces per-component `auto_start` / `auto_publish` / `auto_extract`
+boolean properties. Activation is declared in the scene, not baked into the
+component spec, so the same component type can be used both as a reactive
+subscriber and as a scene-bootstrapped source without any code change.
+
+### `player/done` — stop signal
+
+`NoidPlayer.run()` blocks until `player/done` is published on the bus.
+Any component can end the session by publishing to it:
 
 ```json
 {
@@ -142,7 +170,8 @@ This is a Python extension with no JS equivalent (JS always needs an explicit ha
 }
 ```
 
-When the timer's `done` notice fires, `_notify("done", {})` is called, which publishes to `player/done`, which causes `run()` to stop and clean up.
+When the timer's `done` notice fires, `_notify("done", {})` publishes to
+`player/done`, which causes `run()` to stop and clean up.
 
 This replaces the implicit "close tab" event from the browser context.
 

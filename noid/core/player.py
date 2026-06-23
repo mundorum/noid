@@ -166,6 +166,7 @@ class NoidPlayer:
         _done_handler = lambda _t, _m: done.set()
         self._bus.subscribe("player/done", _done_handler)
         await self.start()
+        await self._bus.publish("player/start", {})
         try:
             if timeout is not None:
                 try:
