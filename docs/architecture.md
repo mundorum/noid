@@ -244,6 +244,7 @@ noid/
     base.py              # OidBase    ✓ implemented
     component.py         # OidComponent + Noid registry  ✓ implemented
     player.py            # NoidPlayer (declarative scene runner)  ✓ implemented
+    meta.py              # metadata extractor + noid-extract-meta CLI  ✓ implemented
     bridge.py            # BusBridge (transport-agnostic)  — planned
     workflow_bridge.py   # WorkflowBridge (engine-agnostic)  — planned
   transport/
@@ -261,6 +262,7 @@ tests/
     test_bus.py          # 25 tests  ✓
     test_base.py         # 32 tests  ✓
     test_player.py       # 17 tests  ✓
+    test_meta.py         # 25 tests  ✓
 
 playground/
   learning/
@@ -305,3 +307,4 @@ playground/
 | 18 | `player/done` as the stop signal | Any component can end a player session by publishing to `player/done` — mirrors browser tab-close equivalent; keeps stop logic in the scene, not hard-coded in application code |
 | 19 | Per-component readiness queue in `OidBase` | Async components (e.g. LLM agents) may need to gate concurrent messages. `set_ready(False/True)` on `OidBase` buffers incoming notices in a FIFO list and drains them when the component becomes ready. Queuing lives in the component, not the Bus, so the Bus remains simple and handler-agnostic. Drain is scheduled as an asyncio task in the component's own event loop, which is the same path used by all other async handlers. |
 | 20 | `player/start` as the scene-ready signal; no `auto_start` properties on components | After all components are started and subscriptions are live, `NoidPlayer.run()` publishes `player/start {}`. Source components that need a "go" signal subscribe to it in the scene (`"subscribe": "player/start~trigger"`). This replaces per-component `auto_*` boolean properties, mirrors the browser `DOMContentLoaded` equivalent, and keeps activation logic in the scene rather than inside component specs. |
+| 21 | Metadata in the spec dict; extracted to `.meta.yaml` by `noid-extract-meta` | Composition tools need component descriptions, property constraints, and notice documentation without parsing Python. Optional fields (`name`, `description`, property `description`, `receive` dict with `description`, `output_notices`) are added to the `@Noid.component` spec — the runtime ignores unknown keys. `noid/core/meta.py` imports the module, reads from `Noid._oid_reg`, and serialises to YAML. File lives alongside the component as `<id>.meta.yaml`. |

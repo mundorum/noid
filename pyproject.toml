@@ -25,10 +25,15 @@ Repository = "https://github.com/mundorum/noid"
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
+    "pyyaml>=6",
+]
+meta = [
+    "pyyaml>=6",
 ]
 
 [project.scripts]
 noid-play = "noid.core.player:_cli"
+noid-extract-meta = "noid.core.meta:_cli"
 
 [tool.setuptools.packages.find]
 where = ["."]

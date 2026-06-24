@@ -84,12 +84,17 @@ Noid.component({"id": "mypkg:sensor", "implementation": SensorOid})
 | Field | Type | Description |
 |---|---|---|
 | `id` | str | **Required.** `"namespace:name"` convention. Must be unique. |
-| `properties` | dict | Named properties. Keys = property names. Values = `{"default": x, "readonly": bool}`. |
-| `receive` | list or dict | Declares which notices this component handles (required for handler dispatch). |
+| `name` | str | Human-readable display name. Auto-derived from `id` if absent. Used by metadata tools. |
+| `description` | str | Component description. Used by metadata tools; falls back to the class docstring. |
+| `properties` | dict | Named properties. Keys = property names. Values = `{"default": x, "readonly": bool, "description": str}`. |
+| `receive` | list or dict | Declares which notices this component handles (required for handler dispatch). Dict form supports `{"notice": {"description": str}}`. |
+| `output_notices` | dict | Declares output notices with descriptions: `{"notice": {"description": str}}`. Used by metadata tools only. |
 | `subscribe` | str or dict | Wires bus topics to internal notices. |
 | `publish` | str or dict | Wires internal notices to bus topics. |
 | `provide` | list | Interface ids this component provides. Requires `component_id`. |
 | `connect` | str | Interface ids and provider ids this component connects to. |
+
+The `name`, `description`, `output_notices`, and per-field `description` keys are **metadata-only**: the runtime ignores them. They exist solely to feed the `noid-extract-meta` tool (see §19).
 
 ### String syntax
 
@@ -615,6 +620,136 @@ registrations (`Noid.c_interface`) live in the same module as the provider compo
 
 ---
 
+## 19. Component metadata
+
+Each component should ship a `.meta.yaml` file alongside its Python module.
+This file is the contract between the component and composition tools — tools
+read it instead of importing or parsing Python.
+
+### Enriching the spec
+
+Add the optional metadata fields directly in the `@Noid.component` spec. The
+runtime ignores all of them; they are consumed only by `noid-extract-meta`.
+
+```python
+@Noid.component({
+    "id": "data:text-source",
+    "name": "Text Source",                          # display name (optional)
+    "description": "Publishes its text property as a message whenever triggered.",
+    "properties": {
+        "text":  {"default": "", "description": "Text content to publish when triggered."},
+        "label": {"default": "text", "description": "Label in the published payload."},
+    },
+    "receive": {
+        "trigger": {"description": "Triggers publication of the text content."},
+    },
+    "publish": "text~pipeline/text-out;done~pipeline/done",
+    "output_notices": {
+        "text": {"description": "Emitted when triggered. Payload keys: label (str), content (str)."},
+        "done": {"description": "Emitted after text, signaling pipeline completion."},
+    },
+})
+class TextSourceOid(OidComponent):
+    ...
+```
+
+Key rules:
+- `receive` dict form: value is `{"description": "..."}` (and optionally `"handler": "method_name"`).
+  The old string-value form `{"notice": "method_name"}` still works unchanged.
+- `output_notices` is separate from `publish` because `publish` is a routing map
+  (notice → topic), not a notice declaration. Descriptions go in `output_notices`.
+- `name` is derived automatically from `id` if absent (`"data:text-source"` → `"Text Source"`).
+- `description` falls back to the class docstring if absent from the spec.
+
+### Generating the YAML file
+
+```bash
+# Write <component-id>.meta.yaml alongside the source file
+noid-extract-meta noid_collections/data/text_source/text_source.py
+
+# Write to an explicit path
+noid-extract-meta text_source.py --out text_source.meta.yaml
+
+# Print to stdout (inspect or pipe to a formatter)
+noid-extract-meta text_source.py --stdout
+```
+
+### YAML schema
+
+```yaml
+id: data:text-source
+name: Text Source
+description: Publishes its text property as a message whenever triggered.
+
+properties:
+  text:
+    description: Text content to publish when triggered.
+    default: ''
+    required: false
+  label:
+    description: Label in the published payload.
+    default: text
+    required: false
+
+input_notices:
+  trigger:
+    description: Triggers publication of the text content.
+
+output_notices:
+  text:
+    description: 'Emitted when triggered. Payload keys: label (str), content (str).'
+  done:
+    description: Emitted after text, signaling pipeline completion.
+
+# Only present when the component provides interfaces:
+provides:
+  - id: itf:compute
+    operations:
+      run:
+        description: Execute the computation and return the result.
+
+# Only present when the component connects to interfaces:
+connects:
+  - itf:store
+```
+
+Fields:
+
+| Field | When present | Notes |
+|---|---|---|
+| `id` | always | Matches the spec `id` |
+| `name` | always | Explicit or derived from `id` |
+| `description` | when set | From spec or class docstring |
+| `properties` | when spec has `properties` | Each property has `required`, optional `default`, `description`, `readonly` |
+| `input_notices` | when spec has `receive` | One entry per declared notice |
+| `output_notices` | when spec has `output_notices` or `publish` | One entry per output notice; descriptions only if `output_notices` spec was provided |
+| `provides` | when spec has `provide` | Expanded with interface operation specs from the registry |
+| `connects` | when spec has `connect` | Interface ids only (instance id stripped) |
+
+### File placement
+
+Place the `.meta.yaml` file alongside the component module:
+
+```
+noid_collections/data/text_source/
+  text_source.py
+  text_source.meta.yaml     ← generated by noid-extract-meta (or hand-authored)
+  text_source_test.py
+```
+
+### Programmatic extraction
+
+```python
+from noid.core.meta import extract_meta, meta_to_yaml
+
+# component must already be registered
+import noid_collections.data.text_source.text_source  # registers via @Noid.component
+meta = extract_meta("data:text-source")
+print(meta_to_yaml(meta))
+```
+
+---
+
 ## 18. Checklist before submitting a component
 
 - [ ] `id` follows `namespace:name` convention and is unique
@@ -627,3 +762,5 @@ registrations (`Noid.c_interface`) live in the same module as the provider compo
 - [ ] At least one test verifies the core behaviour via the bus (not by calling handlers directly)
 - [ ] Tests use `Bus()` (not `Bus.i`)
 - [ ] No web framework imports in component code
+- [ ] Spec enriched with `description`, property descriptions, and `output_notices` (see §19)
+- [ ] `.meta.yaml` generated with `noid-extract-meta` and committed alongside the component
