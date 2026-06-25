@@ -244,6 +244,7 @@ noid/
     base.py              # OidBase    ✓ implemented
     component.py         # OidComponent + Noid registry  ✓ implemented
     player.py            # NoidPlayer (declarative scene runner)  ✓ implemented
+    namespace.py         # NamespaceResolver (module + resource namespaces)  ✓ implemented
     meta.py              # metadata extractor + noid-extract-meta CLI  ✓ implemented
     bridge.py            # BusBridge (transport-agnostic)  — planned
     workflow_bridge.py   # WorkflowBridge (engine-agnostic)  — planned
@@ -262,6 +263,7 @@ tests/
     test_bus.py          # 25 tests  ✓
     test_base.py         # 32 tests  ✓
     test_player.py       # 17 tests  ✓
+    test_namespace.py    # namespace resolver tests  ✓
     test_meta.py         # 25 tests  ✓
 
 playground/

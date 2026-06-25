@@ -15,6 +15,8 @@ Whenever working in this project, also include `~/git/mundorum/oid` as an additi
 All design decisions are recorded in `docs/`. **Read the relevant document before implementing any feature.**
 
 - [`docs/architecture.md`](docs/architecture.md) — authoritative design: component model, bus, hexagonal structure, decision log
+- [`docs/namespaces.md`](docs/namespaces.md) — namespace system: module and resource namespaces, resolution order, `kind: resource` opt-in
+- [`docs/scene-package.md`](docs/scene-package.md) — on-disk scene package format (directory + scene.json + components/ + data/)
 - [`docs/transport-adapters.md`](docs/transport-adapters.md) — web framework integration (FastAPI, Django/Channels)
 - [`docs/workflow-integration.md`](docs/workflow-integration.md) — workflow engine choices (Dagster/Dask for dataflows, Temporal/LangGraph for agents)
 

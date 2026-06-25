@@ -10,9 +10,15 @@ JSON scene format
 {
   "title":      "My Scene",
 
+  "namespaces": {                // optional namespace definitions (highest priority)
+    "shared": {"kind": "resource", "root": "/mnt/shared"},
+    "local":  {"kind": "resource", "root": "."}
+  },
+
   "imports": [
     "./components.py",          // Python file, resolved relative to scene file
-    "my_package.components"     // Python module (importlib.import_module)
+    "my_package.components",    // Python module (importlib.import_module)
+    "noid:data.text_source"     // namespace-prefixed module (if noid: is defined)
   ],
 
   "interfaces": [               // Noid.c_interface() calls
@@ -27,7 +33,7 @@ JSON scene format
 
   "components": [               // instances, in declaration order
     {
-      "type":       "ex:timer",     // required — registered component id
+      "type":       "ex:timer",     // required — registered component id or ns:module_path
       "id":         "timer1",       // optional — component_instance_id for provide/connect
       "properties": {"interval": 0.5, "count": 5},
       "publish":    "tick~timer/tick;done~player/done",
@@ -44,6 +50,18 @@ started by start() / run().
 
 The player monitors the 'player/done' topic on its bus: run() returns when
 that topic is published (or when a timeout elapses).
+
+Namespace resolution
+--------------------
+When a noid-namespaces.yaml file is found (by walking up from the scene
+directory) or defined inline in the scene, the player resolves:
+
+  - namespace-prefixed entries in "imports"  →  full module paths
+  - namespace-prefixed component "type" IDs  →  registry IDs (with auto-import)
+  - property values declared "kind": "resource" in the component spec
+    →  absolute filesystem paths via the resource namespace root
+
+See docs/namespaces.md for the namespace file format and resolution order.
 """
 import asyncio
 import importlib
@@ -54,6 +72,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from noid.core.bus import Bus
 from noid.core.component import Noid, OidComponent
+from noid.core.namespace import NamespaceResolver
 
 
 class NoidPlayer:
@@ -63,29 +82,43 @@ class NoidPlayer:
         self._bus: Bus = bus if bus is not None else Bus()
         self._components: List[OidComponent] = []
         self._scene_dir: Optional[Path] = None
+        self._resolver: NamespaceResolver = NamespaceResolver()
         self.title: str = ""
 
     # ------------------------------------------------------------------ loading
 
     def load(self, scene: Union[str, Path, Dict[str, Any]]) -> "NoidPlayer":
         """
-        Load a scene from a file path, a JSON string, or a plain dict.
+        Load a scene from a directory path, a file path, a JSON string, or a dict.
 
-        When given a file path, imports with relative '.py' paths are resolved
-        relative to that file's parent directory.
+        Scene directory:  expects scene.json inside; _scene_dir is the directory.
+        Scene file path:  _scene_dir is the file's parent directory.
+        JSON string / dict: _scene_dir is None; relative file imports will fail.
         """
         if isinstance(scene, dict):
+            data = scene
             self._scene_dir = None
-            return self._load_data(scene)
+        else:
+            path = Path(scene)
+            if path.is_dir():
+                self._scene_dir = path.resolve()
+                data = json.loads(
+                    (path / "scene.json").read_text(encoding="utf-8")
+                )
+            elif path.exists():
+                self._scene_dir = path.parent.resolve()
+                data = json.loads(path.read_text(encoding="utf-8"))
+            else:
+                # Treat as raw JSON string
+                self._scene_dir = None
+                data = json.loads(scene)
 
-        path = Path(scene)
-        if path.exists():
-            self._scene_dir = path.parent.resolve()
-            return self._load_data(json.loads(path.read_text(encoding="utf-8")))
+        self._resolver = NamespaceResolver()
+        self._resolver.discover_and_load(self._scene_dir)
+        if "namespaces" in data:
+            self._resolver.load_from_dict(data["namespaces"], self._scene_dir)
 
-        # Treat as raw JSON string
-        self._scene_dir = None
-        return self._load_data(json.loads(scene))
+        return self._load_data(data)
 
     def _load_data(self, data: Dict[str, Any]) -> "NoidPlayer":
         self.title = data.get("title", "")
@@ -109,29 +142,63 @@ class NoidPlayer:
         return self
 
     def _import(self, path_or_module: str) -> None:
-        if path_or_module.endswith(".py"):
-            fpath = Path(path_or_module)
+        ref = path_or_module
+        # Resolve namespace-prefixed module references before deciding the import path
+        if self._resolver.is_namespaced(ref) and not ref.endswith(".py"):
+            ref = self._resolver.resolve_module(ref)
+        if ref.endswith(".py"):
+            fpath = Path(ref)
             if not fpath.is_absolute() and self._scene_dir:
                 fpath = (self._scene_dir / fpath).resolve()
             spec = importlib.util.spec_from_file_location(fpath.stem, fpath)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
         else:
-            importlib.import_module(path_or_module)
+            importlib.import_module(ref)
 
     def _instantiate(self, entry: Dict[str, Any]) -> Optional[OidComponent]:
         comp_type = entry.get("type")
         if comp_type is None:
             return None
+        resolved_type = self._resolver.resolve_type(comp_type)
+        resolved_props = self._resolve_resource_props(
+            resolved_type, entry.get("properties")
+        )
         return Noid.create(
-            comp_type,
-            properties=entry.get("properties"),
+            resolved_type,
+            properties=resolved_props,
             bus=self._bus,
             component_instance_id=entry.get("id"),
             subscribe=entry.get("subscribe"),
             publish=entry.get("publish"),
             connect=entry.get("connect"),
         )
+
+    def _resolve_resource_props(
+        self,
+        type_id: str,
+        properties: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve kind:resource property values via the namespace resolver."""
+        if not properties:
+            return properties
+        cls = Noid._oid_reg.get(type_id)
+        if cls is None:
+            return properties
+        props_spec: dict = getattr(cls, "_spec", {}).get("properties", {})
+        result: Optional[Dict[str, Any]] = None
+        for key, val in properties.items():
+            prop_spec = props_spec.get(key, {})
+            if (
+                isinstance(prop_spec, dict)
+                and prop_spec.get("kind") == "resource"
+                and isinstance(val, str)
+                and self._resolver.is_namespaced(val)
+            ):
+                if result is None:
+                    result = dict(properties)
+                result[key] = self._resolver.resolve_resource(val)
+        return result if result is not None else properties
 
     # ---------------------------------------------------------------- lifecycle
 
@@ -216,7 +283,7 @@ def _cli(argv=None) -> None:
     )
     parser.add_argument(
         "scene",
-        help="Path to the JSON scene file to load and run.",
+        help="Path to the JSON scene file (or scene directory) to load and run.",
     )
     parser.add_argument(
         "--timeout",
