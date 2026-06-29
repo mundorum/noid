@@ -223,6 +223,26 @@ await comp.start()
 # comp.label == "custom"  (not "sensor")
 ```
 
+**File-path properties — `"kind": "resource"`:**
+
+Add `"kind": "resource"` to any property that holds a file path. `NoidPlayer` then
+resolves namespace-prefixed values (e.g. `"shared:data/intro.txt"`) to absolute
+filesystem paths before passing them to the component. Without this, the raw string
+is handed through unchanged.
+
+```python
+"properties": {
+    "input_file": {
+        "default": "",
+        "kind": "resource",
+        "description": "Path to a file. Prefix shared: resolves to the shared resource area.",
+    },
+}
+```
+
+By convention, use `input_file` for file-path properties that act as data sources
+(consistent with `data:text-source` and `data:csv-source`).
+
 ---
 
 ## 10. Lifecycle
@@ -423,7 +443,7 @@ python -m noid scene.json
 ### Trigger / source component
 
 Emits events on a schedule or external trigger. Overrides `start()`/`stop()` to manage
-a background task. Calls `_notify` to emit events. Has no `receive` handlers.
+a background task. Calls `_notify` to emit events.
 
 ```python
 @Noid.component({
@@ -449,6 +469,66 @@ class PollerOid(OidComponent):
             data = await fetch(self.url)
             await self._notify("data", data)
             # optionally: await self._notify("done", {}) to stop the player
+```
+
+### Controllable timer / source component
+
+A source that manages its own background task but also accepts control notices
+(`start`, `stop`, `reset`). The task is **not** started in `start()` — it waits for
+an explicit `start` notice, which lets the scene wire `player/start~start` when
+auto-start is wanted. See `basic:timer` for the canonical implementation.
+
+```python
+@Noid.component({
+    "id": "mypkg:timer",
+    "properties": {"period": {"default": 1.0}, "cycles": {"default": 0}},
+    "receive": {
+        "start": {"description": "Begin emitting pulses."},
+        "stop":  {"description": "Halt without resetting the count."},
+        "reset": {"description": "Halt and reset the count to zero."},
+    },
+    "publish": "pulse~mypkg/pulse;done~mypkg/done",
+})
+class MyTimerOid(OidComponent):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._task = None
+        self._count = 0
+
+    async def stop(self):
+        await self._stop_task()
+        await super().stop()
+
+    async def handle_start(self, notice, message):
+        if self._task and not self._task.done():
+            return   # already running
+        self._task = asyncio.create_task(self._run())
+
+    async def handle_stop(self, notice, message):
+        await self._stop_task()
+
+    async def handle_reset(self, notice, message):
+        await self._stop_task()
+        self._count = 0
+
+    async def _stop_task(self):
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try: await self._task
+            except asyncio.CancelledError: pass
+
+    async def _run(self):
+        try:
+            while True:
+                await asyncio.sleep(float(self.period))
+                self._count += 1
+                await self._notify("pulse", {"count": self._count})
+                cycles = int(self.cycles) if self.cycles else 0
+                if cycles and self._count >= cycles:
+                    await self._notify("done", {})
+                    break
+        except asyncio.CancelledError:
+            pass
 ```
 
 ### Transformer / processor component
@@ -635,17 +715,18 @@ runtime ignores all of them; they are consumed only by `noid-extract-meta`.
 @Noid.component({
     "id": "data:text-source",
     "name": "Text Source",                          # display name (optional)
-    "description": "Publishes its text property as a message whenever triggered.",
+    "description": "Publishes text content as a message whenever a load notice arrives.",
     "properties": {
-        "text":  {"default": "", "description": "Text content to publish when triggered."},
-        "label": {"default": "text", "description": "Label in the published payload."},
+        "text":       {"default": "", "description": "Inline text to publish. Ignored if input_file is set."},
+        "input_file": {"default": "", "kind": "resource", "description": "Path to a text file (takes precedence)."},
+        "label":      {"default": "text", "description": "Label in the published payload."},
     },
     "receive": {
-        "trigger": {"description": "Triggers publication of the text content."},
+        "load": {"description": "Loads and publishes the text content."},
     },
-    "publish": "text~pipeline/text-out;done~pipeline/done",
+    "publish": "text~data/text/output;done~data/text/done",
     "output_notices": {
-        "text": {"description": "Emitted when triggered. Payload keys: label (str), content (str)."},
+        "text": {"description": "Emitted when loaded. Payload keys: label (str), content (str)."},
         "done": {"description": "Emitted after text, signaling pipeline completion."},
     },
 })
