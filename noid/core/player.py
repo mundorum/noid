@@ -115,6 +115,11 @@ class NoidPlayer:
 
         self._resolver = NamespaceResolver()
         self._resolver.discover_and_load(self._scene_dir)
+        if self._scene_dir is not None:
+            self._resolver.load_from_dict(
+                {'scene': {'kind': 'resource', 'root': 'data'}},
+                self._scene_dir,
+            )
         if "namespaces" in data:
             self._resolver.load_from_dict(data["namespaces"], self._scene_dir)
 
