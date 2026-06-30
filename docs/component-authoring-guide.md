@@ -86,7 +86,7 @@ Noid.component({"id": "mypkg:sensor", "implementation": SensorOid})
 | `id` | str | **Required.** `"namespace:name"` convention. Must be unique. |
 | `name` | str | Human-readable display name. Auto-derived from `id` if absent. Used by metadata tools. |
 | `description` | str | Component description. Used by metadata tools; falls back to the class docstring. |
-| `properties` | dict | Named properties. Keys = property names. Values = `{"default": x, "readonly": bool, "description": str}`. |
+| `properties` | dict | Named properties. Keys = property names. Values = `{"default": x, "readonly": bool, "kind": str, "description": str}`. Supported `kind` values: `"resource"` (file path, resolved by NoidPlayer), `"text"` (multiline string, rendered as textarea in the platform editor). |
 | `receive` | list or dict | Declares which notices this component handles (required for handler dispatch). Dict form supports `{"notice": {"description": str}}`. |
 | `output_notices` | dict | Declares output notices with descriptions: `{"notice": {"description": str}}`. Used by metadata tools only. |
 | `subscribe` | str or dict | Wires bus topics to internal notices. |
@@ -242,6 +242,28 @@ is handed through unchanged.
 
 By convention, use `input_file` for file-path properties that act as data sources
 (consistent with `data:text-source` and `data:csv-source`).
+
+**Multiline text properties — `"kind": "text"`:**
+
+Add `"kind": "text"` to any property whose value is expected to span multiple lines
+(e.g. prompt templates, inline CSV content, Prolog rule sets). The runtime treats
+the value as a plain string — `kind` is purely a hint for tooling. The platform
+editor renders these properties as a resizable textarea instead of a single-line input.
+
+```python
+"properties": {
+    "prompt_template": {
+        "default": "{input}",
+        "kind": "text",
+        "description": "Prompt template. Supports {input} and any message key as {placeholder}.",
+    },
+    "facts_rules": {
+        "default": "",
+        "kind": "text",
+        "description": "Prolog facts and rules loaded before every query.",
+    },
+}
+```
 
 ---
 
@@ -763,10 +785,16 @@ name: Text Source
 description: Publishes its text property as a message whenever triggered.
 
 properties:
-  text:
-    description: Text content to publish when triggered.
+  content:
+    description: Inline text content to publish. Ignored if input_file is set.
     default: ''
     required: false
+    kind: text          # rendered as a textarea in the platform editor
+  input_file:
+    description: Path to a text file (takes precedence over content).
+    default: ''
+    required: false
+    kind: resource      # NoidPlayer resolves namespace-prefixed values
   label:
     description: Label in the published payload.
     default: text
@@ -801,7 +829,7 @@ Fields:
 | `id` | always | Matches the spec `id` |
 | `name` | always | Explicit or derived from `id` |
 | `description` | when set | From spec or class docstring |
-| `properties` | when spec has `properties` | Each property has `required`, optional `default`, `description`, `readonly` |
+| `properties` | when spec has `properties` | Each property has `required`, optional `default`, `description`, `readonly`, `kind` |
 | `input_notices` | when spec has `receive` | One entry per declared notice |
 | `output_notices` | when spec has `output_notices` or `publish` | One entry per output notice; descriptions only if `output_notices` spec was provided |
 | `provides` | when spec has `provide` | Expanded with interface operation specs from the registry |
@@ -844,4 +872,6 @@ print(meta_to_yaml(meta))
 - [ ] Tests use `Bus()` (not `Bus.i`)
 - [ ] No web framework imports in component code
 - [ ] Spec enriched with `description`, property descriptions, and `output_notices` (see §19)
+- [ ] File-path properties declare `"kind": "resource"` so NoidPlayer resolves namespace-prefixed values
+- [ ] Multiline-text properties declare `"kind": "text"` so the platform editor renders a textarea
 - [ ] `.meta.yaml` generated with `noid-extract-meta` and committed alongside the component

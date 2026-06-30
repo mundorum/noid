@@ -91,12 +91,16 @@ Unique identifier for the component type. Convention: `"namespace:name"` (e.g. `
 Dict of named properties with optional sub-fields:
 - `default` — value applied in `_initialize()` unless already set by the constructor
 - `readonly` — if `True`, only a getter is generated; assignment raises `AttributeError`
+- `kind` — hint for tooling; does not affect runtime behaviour. Values: `"resource"` (file path, resolved by NoidPlayer's namespace system), `"text"` (multiline string, rendered as a textarea in the platform editor)
+- `description` — displayed in the platform editor as a tooltip
 
 ```python
 "properties": {
-    "value":  {"default": 0},
-    "unit":   {"default": "°C", "readonly": True},
-    "label":  {},                    # no default, read-write
+    "value":       {"default": 0},
+    "unit":        {"default": "°C", "readonly": True},
+    "label":       {},                               # no default, read-write
+    "input_file":  {"default": "", "kind": "resource", "description": "Path to a data file."},
+    "prompt":      {"default": "", "kind": "text",     "description": "Multiline prompt template."},
 }
 ```
 

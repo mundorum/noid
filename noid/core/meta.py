@@ -130,6 +130,8 @@ def _build_meta(spec: Dict[str, Any], klass: type) -> Dict[str, Any]:
                 p["required"] = True
             if pdef.get("readonly", False):
                 p["readonly"] = True
+            if pdef.get("kind"):
+                p["kind"] = pdef["kind"]
             meta["properties"][pname] = p
 
     # input_notices (from receive spec)
