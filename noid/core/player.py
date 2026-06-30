@@ -106,7 +106,11 @@ class NoidPlayer:
                     (path / "scene.json").read_text(encoding="utf-8")
                 )
             elif path.exists():
-                self._scene_dir = path.parent.resolve()
+                parent = path.parent.resolve()
+                # Guard: only treat the parent as a scene dir when it contains
+                # scene.json — prevents /tmp from being used as _scene_dir when
+                # the runner writes a temp file directly into the system temp root.
+                self._scene_dir = parent if (parent / 'scene.json').exists() else None
                 data = json.loads(path.read_text(encoding="utf-8"))
             else:
                 # Treat as raw JSON string
