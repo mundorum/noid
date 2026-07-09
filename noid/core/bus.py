@@ -14,6 +14,14 @@ _current_publisher: contextvars.ContextVar[Optional[str]] = contextvars.ContextV
     "_current_publisher", default=None
 )
 
+# Depth of nested Bus.publish() calls within the current call chain (same
+# task/context). 0 at the outermost call; >0 once a handler, while still
+# being awaited, triggers another publish() reentrantly. See publish()'s
+# docstring for why this matters.
+_dispatch_depth: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "_dispatch_depth", default=0
+)
+
 
 class Bus:
     """
@@ -166,6 +174,28 @@ class Bus:
         the publishing component_id (set via the _current_publisher context
         variable by OidBase._publish) and receivers is the list of named
         subscriber component_ids that matched.
+
+        Chain-reaction handling
+        ------------------------
+        A publish->subscribe chain reaction (a handler that publishes another
+        message on receipt, which triggers another handler, and so on — e.g.
+        a CSV source that re-requests the next row every time the previous one
+        is displayed) is common in noid scenes. Directly awaiting a bare
+        coroutine chains Python stack frames one per hop (like `yield from`
+        delegation), so a long chain blows the recursion limit even though
+        publish() is already async — this is unlike JS, where every `await`
+        unconditionally defers to the microtask queue and so never chains
+        stack frames.
+
+        The *first* handler dispatch for a given call chain still awaits its
+        coroutine directly, so side effects (e.g. OidBase.set_ready(False))
+        take effect synchronously — other code (e.g. the readiness queue)
+        depends on that. Only *reentrant* dispatch — a handler publishing
+        again while we're still inside an outer publish() dispatch — is
+        wrapped in asyncio.create_task(). Awaiting a Task genuinely suspends
+        and resumes via the event loop's ready queue instead of nesting the
+        Python call stack, so chain depth no longer costs stack depth, no
+        matter how many hops the chain reaction takes.
         """
         with self._lock:
             exact = list(self._listeners.get(topic, []))
@@ -174,27 +204,32 @@ class Bus:
 
         rgx_matched = [h for pat, h, _ in rgx if pat.fullmatch(topic)]
 
-        if monitors:
-            source = _current_publisher.get()
-            receivers = [
-                owner
-                for h in (exact + rgx_matched)
-                if (owner := getattr(h, "noid_owner", None)) is not None
-            ]
-            for m in monitors:
-                result = m(topic, message, source, receivers)
+        depth = _dispatch_depth.get()
+        token = _dispatch_depth.set(depth + 1)
+        try:
+            if monitors:
+                source = _current_publisher.get()
+                receivers = [
+                    owner
+                    for h in (exact + rgx_matched)
+                    if (owner := getattr(h, "noid_owner", None)) is not None
+                ]
+                for m in monitors:
+                    result = m(topic, message, source, receivers)
+                    if asyncio.iscoroutine(result):
+                        await (result if depth == 0 else asyncio.create_task(result))
+
+            for h in exact:
+                result = h(topic, message)
                 if asyncio.iscoroutine(result):
-                    await result
+                    await (result if depth == 0 else asyncio.create_task(result))
 
-        for h in exact:
-            result = h(topic, message)
-            if asyncio.iscoroutine(result):
-                await result
-
-        for h in rgx_matched:
-            result = h(topic, message)
-            if asyncio.iscoroutine(result):
-                await result
+            for h in rgx_matched:
+                result = h(topic, message)
+                if asyncio.iscoroutine(result):
+                    await (result if depth == 0 else asyncio.create_task(result))
+        finally:
+            _dispatch_depth.reset(token)
 
     # ------------------------------------------------------------------
     # Message analysis helpers

@@ -2,6 +2,7 @@
   "additionalDirectories": [
     "~/git/mundorum/oid",
     "~/git/mundorum/oid-page",
-    "~/git/mundorum/noid-collections"
+    "~/git/mundorum/noid-collections",
+    "~/git/mundorum/platform"
   ]
 }

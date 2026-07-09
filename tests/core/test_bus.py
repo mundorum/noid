@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import threading
 
 import pytest
@@ -161,6 +162,61 @@ async def test_async_handler_wildcard(bus: Bus) -> None:
     await bus.publish("sensor/temp", {})
     await bus.publish("sensor/humidity", {})
     assert received == ["sensor/temp", "sensor/humidity"]
+
+
+# ============================================================
+# chain reactions (reentrant publish inside a handler)
+# ============================================================
+
+async def test_deep_publish_chain_reaction_does_not_recurse(bus: Bus) -> None:
+    """
+    A handler that publishes again on receipt (e.g. a CSV source re-requesting
+    the next row every time the previous one is displayed) must not blow the
+    Python recursion limit, no matter how many hops the chain takes.
+    """
+    hops = sys.getrecursionlimit() * 3
+    count = 0
+    done = asyncio.Event()
+
+    async def ping(t, m):
+        nonlocal count
+        count += 1
+        if count >= hops:
+            done.set()
+        else:
+            await bus.publish("pong", {})
+
+    async def pong(t, m):
+        await bus.publish("ping", {})
+
+    bus.subscribe("ping", ping)
+    bus.subscribe("pong", pong)
+
+    await bus.publish("ping", {})
+    await asyncio.wait_for(done.wait(), timeout=5)
+    assert count == hops
+
+
+async def test_first_hop_dispatches_synchronously(bus: Bus) -> None:
+    """
+    The outermost handler dispatch must still start synchronously (not
+    deferred to a later loop iteration) — other code, such as OidBase's
+    readiness queue, relies on side effects (e.g. set_ready(False)) landing
+    before sibling publish() calls get a chance to run.
+    """
+    started = False
+
+    async def handler(t, m):
+        nonlocal started
+        started = True
+        await asyncio.sleep(0)
+
+    bus.subscribe("t", handler)
+    publish_coro = bus.publish("t", {})
+    task = asyncio.create_task(publish_coro)
+    await asyncio.sleep(0)  # let the task start running
+    assert started is True
+    await task
 
 
 # ============================================================
