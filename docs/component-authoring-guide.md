@@ -253,9 +253,9 @@ editor renders these properties as a resizable textarea instead of a single-line
 ```python
 "properties": {
     "prompt_template": {
-        "default": "{input}",
+        "default": "{{input}}",
         "kind": "text",
-        "description": "Prompt template. Supports {input} and any message key as {placeholder}.",
+        "description": "Prompt template. Supports {{input}} and any message key as {{placeholder}}.",
     },
     "facts_rules": {
         "default": "",
